@@ -1,6 +1,6 @@
 export const Package = Object.freeze({
   URL: 'https://github.com/detritusjs/client-socket',
-  VERSION: '0.9.0-beta.2',
+  VERSION: '0.9.0-beta.5',
 });
 
 
@@ -66,10 +66,10 @@ export enum GatewayDispatchEvents {
   APPLICATION_COMMAND_DELETE = 'APPLICATION_COMMAND_DELETE',
   APPLICATION_COMMAND_UPDATE = 'APPLICATION_COMMAND_UPDATE',
   APPLICATION_COMMAND_PERMISSIONS_UPDATE = 'APPLICATION_COMMAND_PERMISSIONS_UPDATE',
+  AUTO_MODERATION_ACTION_EXECUTION = 'AUTO_MODERATION_ACTION_EXECUTION',
   AUTO_MODERATION_RULE_CREATE = 'AUTO_MODERATION_RULE_CREATE',
   AUTO_MODERATION_RULE_DELETE = 'AUTO_MODERATION_RULE_DELETE',
   AUTO_MODERATION_RULE_UPDATE = 'AUTO_MODERATION_RULE_UPDATE',
-  AUTO_MODERATION_ACTION_EXECUTION = 'AUTO_MODERATION_ACTION_EXECUTION',
   CALL_CREATE = 'CALL_CREATE',
   CALL_DELETE = 'CALL_DELETE',
   CALL_UPDATE = 'CALL_UPDATE',
@@ -114,6 +114,8 @@ export enum GatewayDispatchEvents {
   MESSAGE_CREATE = 'MESSAGE_CREATE',
   MESSAGE_DELETE = 'MESSAGE_DELETE',
   MESSAGE_DELETE_BULK = 'MESSAGE_DELETE_BULK',
+  MESSAGE_POLL_VOTE_ADD = 'MESSAGE_POLL_VOTE_ADD',
+  MESSAGE_POLL_VOTE_REMOVE = 'MESSAGE_POLL_VOTE_REMOVE',
   MESSAGE_REACTION_ADD = 'MESSAGE_REACTION_ADD',
   MESSAGE_REACTION_REMOVE = 'MESSAGE_REACTION_REMOVE',
   MESSAGE_REACTION_REMOVE_ALL = 'MESSAGE_REACTION_REMOVE_ALL',
@@ -164,6 +166,9 @@ export enum GatewayIntents {
 
   AUTO_MODERATION_CONFIGURATION = 1 << 20,
   AUTO_MODERATION_EXECUTION = 1 << 21,
+
+  GUILD_MESSAGE_POLLS = 1 << 24,
+  DIRECT_MESSAGE_POLLS = 1 << 25,
 }
 
 export const GATEWAY_INTENTS_ALL = [
@@ -186,6 +191,8 @@ export const GATEWAY_INTENTS_ALL = [
   GatewayIntents.GUILD_SCHEDULED_EVENTS,
   GatewayIntents.AUTO_MODERATION_CONFIGURATION,
   GatewayIntents.AUTO_MODERATION_EXECUTION,
+  GatewayIntents.GUILD_MESSAGE_POLLS,
+  GatewayIntents.DIRECT_MESSAGE_POLLS,
 ].reduce((x, total) => total | x);
 
 export const GATEWAY_INTENTS_ALL_UNPRIVILEGED = [
@@ -205,12 +212,15 @@ export const GATEWAY_INTENTS_ALL_UNPRIVILEGED = [
   GatewayIntents.GUILD_SCHEDULED_EVENTS,
   GatewayIntents.AUTO_MODERATION_CONFIGURATION,
   GatewayIntents.AUTO_MODERATION_EXECUTION,
+  GatewayIntents.GUILD_MESSAGE_POLLS,
+  GatewayIntents.DIRECT_MESSAGE_POLLS,
 ].reduce((x, total) => total | x);
 
 export const GATEWAY_INTENTS_ALL_DIRECT_MESSAGES = [
   GatewayIntents.DIRECT_MESSAGES,
   GatewayIntents.DIRECT_MESSAGE_REACTIONS,
   GatewayIntents.DIRECT_MESSAGE_TYPING,
+  GatewayIntents.DIRECT_MESSAGE_POLLS,
 ].reduce((x, total) => total | x);
 
 export const GATEWAY_INTENTS_ALL_GUILD = [
@@ -229,6 +239,7 @@ export const GATEWAY_INTENTS_ALL_GUILD = [
   GatewayIntents.GUILD_SCHEDULED_EVENTS,
   GatewayIntents.AUTO_MODERATION_CONFIGURATION,
   GatewayIntents.AUTO_MODERATION_EXECUTION,
+  GatewayIntents.GUILD_MESSAGE_POLLS,
 ].reduce((x, total) => total | x);
 
 
@@ -436,6 +447,7 @@ export enum SocketInternalCloseCodes {
   HEARTBEAT_ACK_NONCE = 4903,
   OTHER_SOCKET_MESSAGE = 4904,
   OTHER_SOCKET_OPEN = 4905,
+  INVALID_SESSION_NON_RESUMABLE = 4906,
 }
 
 export const SocketInternalCloseReasons = Object.freeze({
@@ -446,6 +458,7 @@ export const SocketInternalCloseReasons = Object.freeze({
   [SocketInternalCloseCodes.HEARTBEAT_ACK_NONCE]: 'Invalid nonce received by Heartbeat ACK',
   [SocketInternalCloseCodes.OTHER_SOCKET_MESSAGE]: 'Received message from not our current socket',
   [SocketInternalCloseCodes.OTHER_SOCKET_OPEN]: 'Received open from not our current socket',
+  [SocketInternalCloseCodes.INVALID_SESSION_NON_RESUMABLE]: 'Received Invalid Session that is not resumable',
 });
 
 export enum SocketGatewayCloseCodes {

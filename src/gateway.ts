@@ -387,6 +387,11 @@ export class Socket extends EventSpewer {
           this.sequence = 0;
           this.sessionId = null;
         }; break;
+        case SocketInternalCloseCodes.INVALID_SESSION_NON_RESUMABLE: {
+          this.sequence = 0;
+          this.sessionId = null;
+          this.resumeGatewayUrl = null;
+        }; break;
         case SocketGatewayCloseCodes.AUTHENTICATION_FAILED:
         case SocketGatewayCloseCodes.INVALID_SHARD:
         case SocketGatewayCloseCodes.SHARDING_REQUIRED:
@@ -412,6 +417,7 @@ export class Socket extends EventSpewer {
     if (this.connected) {
       this.disconnect();
     }
+
     if (!url) {
       if (this.resumeGatewayUrl) {
         url = this.resumeGatewayUrl;
@@ -419,6 +425,7 @@ export class Socket extends EventSpewer {
         url = this.url;
       }
     }
+
     if (!url) {
       throw new Error('Socket requires a url to connect to.');
     }
@@ -532,16 +539,8 @@ export class Socket extends EventSpewer {
         if (shouldResume) {
           this.resume();
         } else {
-          this.setState(SocketStates.OPEN);
-          this.sequence = 0;
-          this.sessionId = null;
-
-          const socket = this.socket;
-          setTimeout(() => {
-            if (this.socket === socket) {
-              this.identifyTry();
-            }
-          }, Math.floor(Math.random() * 5 + 1) * 1000);
+          this.disconnect(SocketInternalCloseCodes.INVALID_SESSION_NON_RESUMABLE);
+          this.connect();
         }
       }; break;
       case GatewayOpCodes.RECONNECT: {
