@@ -429,7 +429,7 @@ function resolveField(input: ProbablyField, target: any, name: string) {
     input(target, name);
 
     const fields = get(target)._msg.fields;
-    const field = fields[fields.length - 1];
+    const field = fields.pop();
     return field;
   }
 
