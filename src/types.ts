@@ -62,7 +62,9 @@ export namespace MediaGatewayPackets {
     v: number,
   }
 
-  export type HeartbeatAck = number;
+  export type HeartbeatAck = {
+    t: number,
+  };
 
   export interface Ready {
     experiments: Array<string>,

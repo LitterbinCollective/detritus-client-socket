@@ -470,8 +470,9 @@ export class Socket extends EventSpewer {
           rtp.payload = packet.slice(12);
         }; break;
         default: {
-          const error = new MediaRTPError(`${this.mode} is not supported for decoding.`, from, packet, rtp);
-          this.emit(SocketEvents.WARN, error);
+          // TODO:
+          // const error = new MediaRTPError(`${this.mode} is not supported for decoding.`, from, packet, rtp);
+          // this.emit(SocketEvents.WARN, error);
           return;
         };
       }
@@ -733,7 +734,9 @@ export class Socket extends EventSpewer {
         nonce = rtp.nonce.buffer;
       }; break;
       default: {
-        throw new Error(`${this.mode} is not supported for encoding.`);
+        // TODO:
+        // throw new Error(`${this.mode} is not supported for encoding.`);
+        return;
       };
     }
 

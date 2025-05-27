@@ -17,11 +17,16 @@ import {
   SocketStates,
   MEDIA_ENCRYPTION_MODES,
   MEDIA_PROTOCOLS,
+  BINARY_MEDIA_OP_CODES,
 } from './constants';
 import { Socket as GatewaySocket } from './gateway';
 import { Socket as MediaUDPSocket } from './mediaudp';
 import { MediaGatewayPackets } from './types';
-
+import {
+  createDAVE,
+  MAX_DAVE_PROTOCOL_VERSION,
+  AbstractDAVEManager
+} from './dave';
 
 export interface SocketOptions {
   channelId: string,
@@ -60,6 +65,8 @@ export class Socket extends EventSpewer {
   };
   bucket = new Bucket(120, 60 * 1000);
   channelId: string;
+  dave: null | AbstractDAVEManager = null;
+  daveEnabled: boolean = true;
   endpoint: null | string = null;
   forceMode: MediaEncryptionModes | null = null;
   gateway: GatewaySocket;
@@ -76,6 +83,7 @@ export class Socket extends EventSpewer {
     [MediaSSRCTypes.AUDIO]: new Map<number, string>(),
     [MediaSSRCTypes.VIDEO]: new Map<number, string>(),
   };
+  sequenceNumber: number = 0;
   transport: MediaUDPSocket | null = null;
   token: null | string = null;
   userId: string;
@@ -116,6 +124,8 @@ export class Socket extends EventSpewer {
       userId: {writable: false},
     });
     this.setProtocol(MediaProtocols.UDP);
+
+    this.on(SocketEvents.WARN, console.log);
   }
 
   get closed(): boolean {
@@ -325,10 +335,27 @@ export class Socket extends EventSpewer {
     return null;
   }
 
-  handle(data: any): void {
+  async handle(data: any): Promise<void> {
+    if (this.dave) {
+      const response = await this.dave.packet(Buffer.from(data));
+      if (response) {
+        if (response.seq)
+          this.sequenceNumber = response.seq;
+
+        if (response.response)
+          this.socket!.send(response.response);
+
+        return;
+      }
+    }
+
     const packet = this.decode(data);
-    if (!packet) {return;}
+    if (!packet) return;
+    console.log(packet);
+
     this.emit(SocketEvents.PACKET, packet);
+    if (packet.seq)
+      this.sequenceNumber = packet.seq;
 
     switch (packet.op) {
       case MediaOpCodes.READY: {
@@ -376,7 +403,7 @@ export class Socket extends EventSpewer {
       }; break;
       case MediaOpCodes.HEARTBEAT_ACK: {
         const data: MediaGatewayPackets.HeartbeatAck = packet.d;
-        if (data !== this._heartbeat.nonce) {
+        if (data.t !== this._heartbeat.nonce) {
           this.disconnect(SocketInternalCloseCodes.HEARTBEAT_ACK_NONCE);
           this.connect();
           return;
@@ -385,6 +412,13 @@ export class Socket extends EventSpewer {
         this._heartbeat.lastAck = Date.now();
       }; break;
       case MediaOpCodes.SELECT_PROTOCOL_ACK: {
+        this.dave = createDAVE(packet.d.dave_protocol_version);
+
+        if (this.dave) {
+          const keyPackage = await this.dave.getKeyPackage(this.userId);
+          this.socket!.send(keyPackage);
+        }
+
         if (this.protocol === MediaProtocols.UDP) {
           const {
             audio_codec: audioCodec,
@@ -567,7 +601,12 @@ export class Socket extends EventSpewer {
       this._heartbeat.ack = false;
       this._heartbeat.lastSent = Date.now();
       this._heartbeat.nonce = Date.now();
-      this.send(MediaOpCodes.HEARTBEAT, this._heartbeat.nonce, undefined, true);
+      this.send(
+        MediaOpCodes.HEARTBEAT,
+        { t: this._heartbeat.nonce, seq_ack: this.sequenceNumber },
+        undefined,
+        true
+      );
     }
   }
 
@@ -595,6 +634,7 @@ export class Socket extends EventSpewer {
       token: this.token,
       user_id: this.userId,
       video: this.videoEnabled,
+      max_dave_protocol_version: this.daveEnabled ? MAX_DAVE_PROTOCOL_VERSION : 0,
     }, () => {
       this.setState(SocketStates.IDENTIFYING);
     }, true);
@@ -605,6 +645,7 @@ export class Socket extends EventSpewer {
       server_id: this.serverId,
       session_id: this.sessionId,
       token: this.token,
+      seq_ack: this.sequenceNumber,
     }, () => {
       this.setState(SocketStates.RESUMING);
     }, true);

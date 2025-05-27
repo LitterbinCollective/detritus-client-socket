@@ -6,7 +6,7 @@ export const Package = Object.freeze({
 
 export const ApiVersions = Object.freeze({
   GATEWAY: 10,
-  MEDIA_GATEWAY: 5,
+  MEDIA_GATEWAY: 8,
 });
 
 export enum CompressTypes {
@@ -334,6 +334,8 @@ export const MEDIA_ENCRYPTION_MODES = Object.freeze([
   MediaEncryptionModes.XSALSA20_POLY1305_LITE,
   MediaEncryptionModes.XSALSA20_POLY1305_SUFFIX,
   MediaEncryptionModes.XSALSA20_POLY1305,
+  MediaEncryptionModes.AEAD_XCHACHA20_POLY1305_RTPSIZE,
+  MediaEncryptionModes.AEAD_AES256_GCM_RTPSIZE,
 ]);
 
 export enum MediaOpCodes {
@@ -369,7 +371,16 @@ export enum MediaOpCodes {
   MLS_COMMIT_WELCOME = 28,
   MLS_PREPARE_COMMIT_TRANSITION = 29,
   MLS_WELCOME = 30,
+  MLS_INVALID_COMMIT_WELCOME = 31,
 }
+
+export const BINARY_MEDIA_OP_CODES = Object.freeze([
+  MediaOpCodes.MLS_EXTERNAL_SENDER_PACKAGE,
+  MediaOpCodes.MLS_KEY_PACKAGE,
+  MediaOpCodes.MLS_PROPOSALS,
+  MediaOpCodes.MLS_COMMIT_WELCOME,
+  MediaOpCodes.MLS_WELCOME,
+])
 
 export enum MediaProtocols {
   UDP = 'udp',

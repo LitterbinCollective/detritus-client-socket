@@ -8,7 +8,10 @@
     "lib/**"
   ],
   "dependencies": {
+    "@hpke/core": "^1.7.2",
+    "@noble/curves": "^1.9.1",
     "detritus-utils": "^0.4.0",
+    "libsodium-wrappers": "^0.7.15",
     "ws": "^8.18.0"
   },
   "peerDependencies": {
