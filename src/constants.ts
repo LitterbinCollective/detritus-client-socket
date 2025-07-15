@@ -18,8 +18,7 @@ export const COMPRESS_TYPES = Object.freeze(Object.values(CompressTypes));
 
 export enum CryptoModules {
   LIBSODIUM_WRAPPERS = 'libsodium-wrappers',
-  SODIUM = 'sodium',
-  TWEETNACL = 'tweetnacl',
+  SODIUM = 'sodium'
 }
 
 export const DEFAULT_SHARD_COUNT = 1;
@@ -331,9 +330,6 @@ export enum MediaEncryptionModes {
 }
 
 export const MEDIA_ENCRYPTION_MODES = Object.freeze([
-  MediaEncryptionModes.XSALSA20_POLY1305_LITE,
-  MediaEncryptionModes.XSALSA20_POLY1305_SUFFIX,
-  MediaEncryptionModes.XSALSA20_POLY1305,
   MediaEncryptionModes.AEAD_XCHACHA20_POLY1305_RTPSIZE,
   MediaEncryptionModes.AEAD_AES256_GCM_RTPSIZE,
 ]);
@@ -394,7 +390,7 @@ export const MediaReceivedVideoQuality = Object.freeze({
   FULL: 'full',
 });
 
-export const MediaSilencePacket = [0xF8, 0xFF, 0xFE];
+export const MediaSilencePacket = Buffer.from([0xF8, 0xFF, 0xFE]);
 
 export enum MediaSpeakingFlags {
   NONE = 0,

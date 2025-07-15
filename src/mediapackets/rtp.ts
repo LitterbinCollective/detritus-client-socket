@@ -289,9 +289,8 @@ export class RTPNonce {
     this.buffer = Buffer.alloc(24);
     Object.defineProperty(this, 'buffer', {enumerable: false, writable: false});
 
-    if (options.randomize || options.randomize === undefined) {
+    if (options.randomize)
       this.randomize();
-    }
   }
 
   get number(): number {

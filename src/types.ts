@@ -45,6 +45,7 @@ export namespace MediaGatewayPackets {
   export interface Packet {
     d: any,
     op: number,
+    seq?: number,
   }
 
   export interface ClientConnect {
@@ -112,5 +113,28 @@ export namespace MediaGatewayPackets {
 
   export interface MediaSinkWants {
     any: number,
+  }
+
+  export interface DAVEProtocolPrepareTransition {
+    protocol_version: number,
+    transition_id: number,
+  }
+
+  export interface DAVEProtocolExecuteTransition {
+    transition_id: number,
+  }
+
+  export interface DAVEProtocolReadyForTransition {
+    transition_id: number,
+  }
+
+  export interface DAVEProtocolPrepareEpoch {
+    protocol_version: number,
+    epoch_id: number,
+    transition_id: number,
+  }
+
+  export interface DAVEMLSInvalidCommitWelcome {
+    transition_id: number,
   }
 }

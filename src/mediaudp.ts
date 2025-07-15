@@ -30,6 +30,7 @@ import {
   RTPNonce,
 } from './mediapackets/rtp';
 import RTPCrypto from './mediapackets/rtpcrypto';
+import { Codec, MediaType } from '@snazzah/davey';
 
 
 export interface FrameOptions {
@@ -117,12 +118,12 @@ export class Socket extends EventSpewer {
 
     this.caches = {audio: Buffer.alloc(5 * 1024)};
     this.headers = {audio: new RTPHeader({randomize: true})};
-    this.nonces = {audio: new RTPNonce({randomize: true})};
+    this.nonces = {audio: new RTPNonce()};
 
     if (this.videoEnabled) {
       this.caches.video = Buffer.alloc(5 * 1024);
       this.headers.video = new RTPHeader({randomize: true});
-      this.nonces.video = new RTPNonce({randomize: true});
+      this.nonces.video = new RTPNonce();
     }
 
     this.codecs = {
@@ -281,7 +282,7 @@ export class Socket extends EventSpewer {
         return;
       }
 
-      this.local.ip = packet.slice(8, packet.indexOf(0, 8)).toString();
+      this.local.ip = packet.subarray(8, packet.indexOf(0, 8)).toString();
       this.local.port = packet.readUIntBE(packet.length - 2, 2);
 
       const codecs: Array<{
@@ -406,9 +407,9 @@ export class Socket extends EventSpewer {
 
     } else {
       const rtp: RTPPayload = {
-        header: new RTPHeader({buffer: packet.slice(0, 12)}),
+        header: new RTPHeader({buffer: packet.subarray(0, 12)}),
       };
-  
+
       let payloadType = rtp.header.payloadType;
       /*
       // unknown if this is how it is now
@@ -451,23 +452,28 @@ export class Socket extends EventSpewer {
         return;
       }
 
-      rtp.nonce = Buffer.alloc(24);
+      rtp.nonce = this.mode === MediaEncryptionModes.AEAD_AES256_GCM_RTPSIZE ? Buffer.alloc(12) : Buffer.alloc(24);
       switch (this.mode) {
         case MediaEncryptionModes.XSALSA20_POLY1305_LITE: {
           // last 4 bytes
           packet.copy(rtp.nonce, 0, packet.length - 4);
-          rtp.payload = packet.slice(12, -4);
+          rtp.payload = packet.subarray(12, -4);
         }; break;
         case MediaEncryptionModes.XSALSA20_POLY1305_SUFFIX: {
           // last 24 bytes
           packet.copy(rtp.nonce, 0, packet.length - 24);
-          rtp.payload = packet.slice(12, -24);
+          rtp.payload = packet.subarray(12, -24);
         }; break;
         case MediaEncryptionModes.XSALSA20_POLY1305: {
           // first 12 bytes, the rtp header
           // currently broken for some reason
           packet.copy(rtp.nonce, 0, 0, 12);
-          rtp.payload = packet.slice(12);
+          rtp.payload = packet.subarray(12);
+        }; break;
+        case MediaEncryptionModes.AEAD_XCHACHA20_POLY1305_RTPSIZE:
+        case MediaEncryptionModes.AEAD_AES256_GCM_RTPSIZE: {
+          packet.copy(rtp.nonce, 0, packet.length - 4, packet.length);
+          rtp.payload = packet.subarray(0, -4);
         }; break;
         default: {
           // TODO:
@@ -477,11 +483,26 @@ export class Socket extends EventSpewer {
         };
       }
 
+      let userId: null | string = null;
+      if (format !== null) {
+        switch (format) {
+          case MediaCodecTypes.AUDIO: {
+            userId = this.mediaGateway.ssrcToUserId(rtp.header.ssrc, MediaSSRCTypes.AUDIO);
+          }; break;
+          case MediaCodecTypes.VIDEO: {
+            userId = this.mediaGateway.ssrcToUserId(rtp.header.ssrc, MediaSSRCTypes.VIDEO);
+          }; break;
+        }
+      }
+
       let data: Buffer | null = RTPCrypto.decrypt(
+        this.mode as MediaEncryptionModes,
         <Uint8Array> this.key,
         <Buffer> rtp.payload,
+        rtp.header.buffer,
         <Buffer> rtp.nonce,
       );
+
       if (!data) {
         const error = new MediaRTPError('Packet failed to decrypt', from, packet, rtp);
         this.emit(SocketEvents.WARN, error);
@@ -490,8 +511,8 @@ export class Socket extends EventSpewer {
 
       if (rtp.header.padding) {
         // RFC3550 Section 5.1
-        // last byte contains amount of padding, including itself, slice that stuff off
-        data = data.slice(0, data.length - data.readUIntBE(data.length - 1, 1));
+        // last byte contains amount of padding, including itself, subarray that stuff off
+        data = data.subarray(0, data.length - data.readUIntBE(data.length - 1, 1));
       }
 
       if (rtp.header.extension) {
@@ -515,7 +536,7 @@ export class Socket extends EventSpewer {
 
             // skip the field data since we don't know what to do with it
             offset += len;
-            // fields.push(data.slice(offset, offset += len));
+            // fields.push(data.subarray(offset, offset += len));
 
             /*
             // apparently discord's padding isn't actually padding from the RFC..
@@ -527,7 +548,7 @@ export class Socket extends EventSpewer {
           }
           // https://github.com/discordjs/discord.js/pull/3555
           offset++;
-          data = data.slice(offset);
+          data = data.subarray(offset);
           // do something here with the fields, then clear it
           // fields.length = 0;
         } else if (RTPHeaderExtensionTwoByte.HEADER.every((header, i) => header === (<Buffer> data)[i])) {
@@ -547,12 +568,12 @@ export class Socket extends EventSpewer {
             const identifier = data.readUIntBE(offset++, 1);
             const len = data.readUIntBE(offset++, 1);
             if (!len) {continue;}
-            fields.push(data.slice(offset, offset + len));
+            fields.push(data.subarray(offset, offset + len));
             offset += len;
             while (data[offset] === 0) {offset++;}
           }
           if (offset !== data.length) {
-            fields.push(data.slice(offset));
+            fields.push(data.subarray(offset));
             //just making sure, dunno tho
           }
           
@@ -562,26 +583,27 @@ export class Socket extends EventSpewer {
         }
       }
 
-      let userId: null | string = null;
-      if (format !== null) {
-        switch (format) {
-          case MediaCodecTypes.AUDIO: {
-            userId = this.mediaGateway.ssrcToUserId(rtp.header.ssrc, MediaSSRCTypes.AUDIO);
-          }; break;
-          case MediaCodecTypes.VIDEO: {
-            userId = this.mediaGateway.ssrcToUserId(rtp.header.ssrc, MediaSSRCTypes.VIDEO);
-          }; break;
-        }
+      if (this.mediaGateway.daveProtocolVersion !== 0) {
+        if (userId && this.mediaGateway.dave?.ready && this.mediaGateway.dave.canPassthrough(userId)) {
+          if (!data.equals(MediaSilencePacket))
+            data = this.mediaGateway.dave.decrypt(
+              userId,
+              format === MediaCodecTypes.AUDIO ? MediaType.AUDIO : MediaType.VIDEO,
+              data,
+            );
+        } else
+          data = null;
       }
 
-      this.emit(SocketEvents.PACKET, (<TransportPacket> {
-        codec,
-        data,
-        format,
-        from,
-        rtp,
-        userId,
-      }));
+      if (data)
+        this.emit(SocketEvents.PACKET, (<TransportPacket> {
+          codec,
+          data,
+          format,
+          from,
+          rtp,
+          userId,
+        }));
     }
   }
 
@@ -645,6 +667,38 @@ export class Socket extends EventSpewer {
       throw new Error('Cannot send in video frames when video is disabled!');
     }
 
+    if (this.mediaGateway.daveProtocolVersion !== 0) {
+      if (this.mediaGateway.dave?.ready && !packet.equals(MediaSilencePacket)) {
+        const mediaType = options.type === MediaCodecTypes.VIDEO ?
+          MediaType.VIDEO :
+          MediaType.AUDIO;
+
+        let codec: Codec;
+        switch (options.type === MediaCodecTypes.VIDEO ? this.codecs.video : this.codecs.audio) {
+          case MediaCodecs.VP8:
+            codec = Codec.VP8;
+            break;
+          case MediaCodecs.VP9:
+            codec = Codec.VP9;
+            break;
+          case MediaCodecs.H264:
+            codec = Codec.H264;
+            break;
+          case MediaCodecs.OPUS:
+            codec = Codec.OPUS;
+            break;
+          default:
+            throw new Error(`Unsupported codec: ${options.type}`);
+        }
+
+        packet = this.mediaGateway.dave.encrypt(
+          mediaType,
+          codec,
+          packet,
+        );
+      }
+    }
+
     const cache: {
       header?: RTPHeader,
       nonce?: RTPNonce,
@@ -693,22 +747,11 @@ export class Socket extends EventSpewer {
         };
       }
       rtp.header = new RTPHeader({payloadType, ssrc});
-      rtp.nonce = new RTPNonce({randomize: true});
+      rtp.nonce = new RTPNonce();
     }
 
     rtp.header = (<RTPHeader> rtp.header);
     rtp.nonce = (<RTPNonce> rtp.nonce);
-
-    if (!useCache && cache.header) {
-      if (options.sequence === undefined) {
-        options.sequence = cache.header.sequence;
-        options.incrementSequence = false;
-      }
-      if (options.timestamp === undefined) {
-        options.timestamp = cache.header.timestamp;
-        options.incrementTimestamp = false;
-      }
-    }
 
     rtp.header.setSequence(options.sequence, options.incrementSequence);
     rtp.header.setTimestamp(options.timestamp, options.incrementTimestamp);
@@ -717,13 +760,13 @@ export class Socket extends EventSpewer {
       length: number,
       packet: Buffer,
     }> = [];
-    const payloadDataCache = (useCache) ? cache.payload.slice(12) : null;
+    const payloadDataCache = (useCache) ? cache.payload.subarray(12) : null;
 
     let nonce: Buffer;
     switch (this.mode) {
       case MediaEncryptionModes.XSALSA20_POLY1305_LITE: {
         nonce = rtp.nonce.set(options.nonce, options.incrementNonce);
-        data.push(nonce.slice(0, 4));
+        data.push(nonce.subarray(0, 4));
       }; break;
       case MediaEncryptionModes.XSALSA20_POLY1305_SUFFIX: {
         nonce = rtp.nonce.generate();
@@ -733,6 +776,14 @@ export class Socket extends EventSpewer {
         rtp.header.copy(rtp.nonce.buffer);
         nonce = rtp.nonce.buffer;
       }; break;
+      case MediaEncryptionModes.AEAD_XCHACHA20_POLY1305_RTPSIZE: {
+        nonce = rtp.nonce.set();
+        data.push(nonce.subarray(0, 4));
+      }; break;
+      case MediaEncryptionModes.AEAD_AES256_GCM_RTPSIZE: {
+        nonce = rtp.nonce.set().subarray(0, 12);
+        data.push(nonce.subarray(0, 4));
+      }; break;
       default: {
         // TODO:
         // throw new Error(`${this.mode} is not supported for encoding.`);
@@ -741,8 +792,10 @@ export class Socket extends EventSpewer {
     }
 
     data.unshift(RTPCrypto.encrypt(
+      this.mode as MediaEncryptionModes,
       <Uint8Array> this.key,
       packet,
+      rtp.header.buffer,
       nonce,
       payloadDataCache,
     ));
@@ -754,11 +807,26 @@ export class Socket extends EventSpewer {
       data.forEach((buf) => {
         const start = total;
         total += buf.length;
-        if (buf instanceof Buffer) {
-          buf.copy(<Buffer> cache.payload, start);
+
+        let buffer: Buffer;
+        switch (true) {
+          case buf instanceof Buffer: {
+            buffer = buf;
+          }; break;
+          case buf instanceof Uint8Array: {
+            buffer = Buffer.from(buf);
+          }; break;
+          case 'packet' in buf: {
+            buffer = Buffer.from((<{length: number, packet: Buffer}> buf).packet);
+          }; break;
+          default: {
+            throw new Error('Invalid buffer type');
+          };
         }
+
+        buffer.copy(<Buffer> cache.payload, start);
       });
-      buffer = cache.payload.slice(0, total);
+      buffer = cache.payload.subarray(0, total);
     } else {
       const buffers = [rtp.header.buffer, ...data].map((buffer) => {
         if (buffer instanceof Buffer) {
@@ -773,7 +841,7 @@ export class Socket extends EventSpewer {
   }
 
   sendAudioSilenceFrame(): void {
-    this.sendFrame(Buffer.from(MediaSilencePacket), {
+    this.sendFrame(MediaSilencePacket, {
       incrementTimestamp: true,
       timestamp: 960,
       type: MediaCodecTypes.AUDIO,

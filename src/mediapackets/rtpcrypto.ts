@@ -1,4 +1,5 @@
-import { CryptoModules } from '../constants';
+import { createCipheriv, createDecipheriv } from 'crypto';
+import { CryptoModules, MediaEncryptionModes } from '../constants';
 
 const PCrypto: {
   available: {[key: string]: any},
@@ -8,8 +9,7 @@ const PCrypto: {
   available: {},
   modules: [
     CryptoModules.SODIUM,
-    CryptoModules.LIBSODIUM_WRAPPERS,
-    CryptoModules.TWEETNACL,
+    CryptoModules.LIBSODIUM_WRAPPERS
   ],
   using: null,
 };
@@ -74,10 +74,6 @@ export default {
         nonce = cache || Buffer.alloc(crypto.crypto_secretbox_NONCEBYTES);
         crypto.randombytes_buf(nonce);
       }; break;
-      case CryptoModules.TWEETNACL: {
-        const generated: Uint8Array = crypto.randomBytes(crypto.box.nonceLength);
-        nonce = Uint8ArrayToBuffer(generated, cache);
-      }; break;
       default: {
         throw new Error(`For media (video/voice) packing/unpacking, please install one of: ${JSON.stringify(PCrypto.modules)}`);
       };
@@ -85,75 +81,82 @@ export default {
     return nonce;
   },
   encrypt(
+    encryptionType: MediaEncryptionModes,
     key: Uint8Array,
     data: Buffer,
+    additionalData: Buffer,
     nonce: Buffer,
     cache?: Buffer | null,
   ): {
     length: number,
     packet: Buffer,
   } {
-    const crypto = this.module;
-
     let length = 0;
     let packet: Buffer;
-    switch (this.using) {
-      case CryptoModules.LIBSODIUM_WRAPPERS: {
-        length += data.length + crypto.crypto_secretbox_MACBYTES;
-        if (cache) {
-          cache.fill(0, 0, length);
-        }
-        const generated: Uint8Array = crypto.crypto_secretbox_easy(data, nonce, key);
-        packet = Uint8ArrayToBuffer(generated, cache);
-      }; break;
-      case CryptoModules.SODIUM: {
-        length += data.length + crypto.crypto_secretbox_MACBYTES;
-        if (cache) {
-          cache.fill(0, 0, length);
-        }
-        packet = crypto.crypto_secretbox_easy(data, nonce, key);
-        if (cache) {
-          packet.copy(cache);
-          packet = cache;
-        }
-      }; break;
-      case CryptoModules.TWEETNACL: {
-        length += data.length + crypto.secretbox.overheadLength;
 
-        const generated: Uint8Array = crypto.secretbox(data, nonce, key);
-        packet = Uint8ArrayToBuffer(generated, cache);
+    switch (encryptionType) {
+      case MediaEncryptionModes.AEAD_AES256_GCM_RTPSIZE: {
+        const cipher = createCipheriv('aes-256-gcm', key, nonce);
+        cipher.setAAD(additionalData);
+
+        packet = Buffer.concat([cipher.update(data), cipher.final(), cipher.getAuthTag()]);
+        length = packet.length;
+      } break;
+      case MediaEncryptionModes.AEAD_XCHACHA20_POLY1305_RTPSIZE: {
+        const crypto = this.module;
+        switch (this.using) {
+          case CryptoModules.LIBSODIUM_WRAPPERS: {
+            const generated: Uint8Array = crypto.crypto_aead_xchacha20poly1305_ietf_encrypt(data, additionalData, null, nonce, key);
+            packet = Uint8ArrayToBuffer(generated);
+            length = packet.length;
+          }; break;
+          case CryptoModules.SODIUM: {
+            packet = crypto.api.crypto_aead_xchacha20poly1305_ietf_encrypt(data, additionalData, null, nonce, key);
+            length = packet.length;
+          }; break;
+        }
       }; break;
-      default: {
-        throw new Error(`For media (video/voice) packing/unpacking, please install one of: ${JSON.stringify(PCrypto.modules)}`);
-      };
+      default:
+        throw new Error(`Unsupported encryption type: ${encryptionType}`);
     }
+
     return {length, packet};
   },
   decrypt(
+    encryptionType: MediaEncryptionModes,
     key: Uint8Array,
     data: Buffer,
+    additionalData: Buffer,
     nonce: Buffer,
   ): Buffer | null {
-    const crypto = this.module;
-
     let packet: Buffer | null = null;
-    switch (this.using) {
-      case CryptoModules.LIBSODIUM_WRAPPERS: {
-        const generated: null | Uint8Array = crypto.crypto_secretbox_open_easy(data, nonce, key);
-        if (generated) {
-          packet = Uint8ArrayToBuffer(generated);
+    switch (encryptionType) {
+      case MediaEncryptionModes.AEAD_AES256_GCM_RTPSIZE: {
+        const decipher = createDecipheriv('aes-256-gcm', key, nonce);
+        decipher.setAAD(additionalData);
+
+        try {
+          packet = Buffer.concat([decipher.update(data), decipher.final()]);
+        } catch (error) {
+          return null;
+        }
+      } break;
+      case MediaEncryptionModes.AEAD_XCHACHA20_POLY1305_RTPSIZE: {
+        const crypto = this.module;
+        switch (this.using) {
+          case CryptoModules.LIBSODIUM_WRAPPERS: {
+            const generated: Uint8Array = crypto.crypto_aead_xchacha20poly1305_ietf_decrypt(null, data, additionalData, nonce, key);
+            packet = Uint8ArrayToBuffer(generated);
+          }; break;
+          case CryptoModules.SODIUM: {
+            packet = crypto.api.crypto_aead_xchacha20poly1305_ietf_decrypt(data, additionalData, null, nonce, key);
+          }; break;
         }
       }; break;
-      case CryptoModules.SODIUM: {
-        packet = crypto.crypto_secretbox_open_easy(data, nonce, key);
-      }; break;
-      case CryptoModules.TWEETNACL: {
-        const generated: null | Uint8Array = crypto.secretbox.open(data, nonce, key);
-        if (generated) {
-          packet = Uint8ArrayToBuffer(generated);
-        }
-      }; break;
+      default:
+        throw new Error(`Unsupported encryption type: ${encryptionType}`);
     }
+
     return packet;
   },
 }

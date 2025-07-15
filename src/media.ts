@@ -1,4 +1,5 @@
 import { EventSpewer, Timers } from 'detritus-utils';
+import { DAVE_PROTOCOL_VERSION, DAVESession } from '@snazzah/davey';
 
 import { BaseSocket } from './basesocket';
 import { Bucket } from './bucket';
@@ -22,11 +23,6 @@ import {
 import { Socket as GatewaySocket } from './gateway';
 import { Socket as MediaUDPSocket } from './mediaudp';
 import { MediaGatewayPackets } from './types';
-import {
-  createDAVE,
-  MAX_DAVE_PROTOCOL_VERSION,
-  AbstractDAVEManager
-} from './dave';
 
 export interface SocketOptions {
   channelId: string,
@@ -65,8 +61,11 @@ export class Socket extends EventSpewer {
   };
   bucket = new Bucket(120, 60 * 1000);
   channelId: string;
-  dave: null | AbstractDAVEManager = null;
+  dave?: DAVESession;
   daveEnabled: boolean = true;
+  daveProtocolVersion: number = 0;
+  daveDowngraded: boolean = false;
+  davePendingTransition: {transition_id: number, protocol_version: number} | null = null;
   endpoint: null | string = null;
   forceMode: MediaEncryptionModes | null = null;
   gateway: GatewaySocket;
@@ -124,8 +123,6 @@ export class Socket extends EventSpewer {
       userId: {writable: false},
     });
     this.setProtocol(MediaProtocols.UDP);
-
-    this.on(SocketEvents.WARN, console.log);
   }
 
   get closed(): boolean {
@@ -308,7 +305,10 @@ export class Socket extends EventSpewer {
     try {
       return JSON.parse(data);
     } catch(error) {
-      this.emit(SocketEvents.WARN, error);
+      const seq = data.readUInt16LE(0);
+      const op = data.readUInt8(2);
+      const d = data.subarray(3);
+      return { seq, op, d, isBinary: true };
     }
   }
 
@@ -332,30 +332,121 @@ export class Socket extends EventSpewer {
     } catch(error) {
       this.emit(SocketEvents.WARN, error);
     }
+
     return null;
   }
 
-  async handle(data: any): Promise<void> {
-    if (this.dave) {
-      const response = await this.dave.packet(Buffer.from(data));
-      if (response) {
-        if (response.seq)
-          this.sequenceNumber = response.seq;
+  sendBinary(opcode: MediaOpCodes, message: Buffer) {
+    const buffer = Buffer.alloc(1);
+    buffer.writeUInt8(opcode, 0);
+    this.socket!.send(Buffer.concat([buffer, message]));
+  }
 
-        if (response.response)
-          this.socket!.send(response.response);
+  reinitDaveSession() {
+    if (this.daveProtocolVersion > 0) {
+      if (this.dave)
+        this.dave.reinit(this.daveProtocolVersion, this.userId, this.channelId);
+      else
+        this.dave = new DAVESession(this.daveProtocolVersion, this.userId, this.channelId);
 
-        return;
+      this.sendBinary(MediaOpCodes.MLS_KEY_PACKAGE, this.dave.getSerializedKeyPackage());
+    } else {
+      this.dave?.reset();
+      if (this.dave)
+        this.dave.setPassthroughMode(true, 10);
+    }
+  }
+
+  executePendingTransition(transitionId: number) {
+    if (!this.davePendingTransition)
+      return this.emit(SocketEvents.WARN, `Received execute transition, but we don't have a pending transition (${transitionId})`);
+
+    let transitioned = false;
+    if (transitionId !== this.davePendingTransition.transition_id)
+      this.emit(SocketEvents.WARN, `Received execute transition for an unexpected transition id (expected: ${this.davePendingTransition.transition_id}, actual: ${transitionId})`);
+    else {
+      const oldVersion = this.daveProtocolVersion;
+      this.daveProtocolVersion = this.davePendingTransition.protocol_version;
+
+      if (oldVersion !== this.daveProtocolVersion && this.daveProtocolVersion === 0)
+        this.daveDowngraded = true;
+      else if (transitionId > 0 && this.daveDowngraded) {
+        this.daveDowngraded = false;
+        this.dave?.setPassthroughMode(true, 10);
       }
+
+      transitioned = true;
     }
 
+    this.davePendingTransition = null;
+    return transitioned;
+  }
+
+  recoverFromInvalidCommit(transitionId: number) {
+    this.send(MediaOpCodes.MLS_INVALID_COMMIT_WELCOME, { transition_id: transitionId });
+    this.reinitDaveSession();
+  }
+
+  async handle(data: any): Promise<void> {
     const packet = this.decode(data);
     if (!packet) return;
-    console.log(packet);
 
     this.emit(SocketEvents.PACKET, packet);
     if (packet.seq)
       this.sequenceNumber = packet.seq;
+
+    if (packet.isBinary) {
+      if (!this.dave)
+        return this.emit(SocketEvents.WARN, 'Received MLS packet before DAVE session was initialized'), void 0;
+
+      const data: Buffer = packet.d;
+      switch (packet.op) {
+        case MediaOpCodes.MLS_EXTERNAL_SENDER_PACKAGE: {
+          this.dave.setExternalSender(data);
+        } break;
+
+        case MediaOpCodes.MLS_PROPOSALS: {
+          const optype = data.readUInt8(0);
+          const proposals = data.subarray(1);
+
+          const { commit, welcome } = this.dave.processProposals(optype, proposals, [...this.ssrcs[MediaSSRCTypes.AUDIO].values()]);
+          if (commit)
+            this.sendBinary(MediaOpCodes.MLS_COMMIT_WELCOME, welcome ? Buffer.concat([commit, welcome]) : commit);
+        } break;
+
+        case MediaOpCodes.MLS_PREPARE_COMMIT_TRANSITION: {
+          const transitionId = data.readUint16BE(0);
+
+          try {
+            this.dave.processCommit(data.subarray(2));
+
+            if (transitionId !== 0) {
+              this.davePendingTransition = { transition_id: transitionId, protocol_version: this.daveProtocolVersion };
+              this.send(MediaOpCodes.SECURE_FRAMES_READY_FOR_TRANSITION, { transition_id: transitionId });
+            }
+          } catch(e) {
+            this.emit(SocketEvents.WARN, 'MLS commit errored: ' + e);
+            this.recoverFromInvalidCommit(transitionId);
+          }
+        } break;
+
+        case MediaOpCodes.MLS_WELCOME: {
+          const transitionId = data.readUint16BE(0);
+
+          try {
+            this.dave.processWelcome(data.subarray(2));
+
+            if (transitionId !== 0) {
+              this.davePendingTransition = { transition_id: transitionId, protocol_version: this.daveProtocolVersion };
+              this.send(MediaOpCodes.SECURE_FRAMES_READY_FOR_TRANSITION, { transition_id: transitionId });
+            }
+          } catch(e) {
+            this.emit(SocketEvents.WARN, 'MLS welcome errored: ' + e);
+            this.recoverFromInvalidCommit(transitionId);
+          }
+        } break;
+      }
+    }
 
     switch (packet.op) {
       case MediaOpCodes.READY: {
@@ -411,13 +502,33 @@ export class Socket extends EventSpewer {
         this._heartbeat.ack = true;
         this._heartbeat.lastAck = Date.now();
       }; break;
-      case MediaOpCodes.SELECT_PROTOCOL_ACK: {
-        this.dave = createDAVE(packet.d.dave_protocol_version);
-
-        if (this.dave) {
-          const keyPackage = await this.dave.getKeyPackage(this.userId);
-          this.socket!.send(keyPackage);
+      case MediaOpCodes.SECURE_FRAMES_PREPARE_EPOCH: {
+        const data: MediaGatewayPackets.DAVEProtocolPrepareEpoch = packet.d;
+        if (data.epoch_id === 1) {
+          this.daveProtocolVersion = packet.d.protocol_version;
+          this.reinitDaveSession();
         }
+      }; break;
+      case MediaOpCodes.SECURE_FRAMES_EXECUTE_TRANSITION: {
+        this.executePendingTransition(packet.d.transition_id);
+      };
+      case MediaOpCodes.SECURE_FRAMES_PREPARE_PROTOCOL_TRANSITION: {
+        const data: MediaGatewayPackets.DAVEProtocolPrepareTransition = packet.d;
+
+        this.davePendingTransition = data;
+
+        if (data.transition_id === 0)
+          this.executePendingTransition(data.transition_id);
+        else {
+          if (data.protocol_version === 0)
+            this.dave?.setPassthroughMode(true, 120);
+
+          this.send(MediaOpCodes.SECURE_FRAMES_READY_FOR_TRANSITION, { transition_id: data.transition_id });
+        }
+      } break;
+      case MediaOpCodes.SELECT_PROTOCOL_ACK: {
+        this.daveProtocolVersion = packet.d.dave_protocol_version;
+        this.reinitDaveSession();
 
         if (this.protocol === MediaProtocols.UDP) {
           const {
@@ -634,7 +745,7 @@ export class Socket extends EventSpewer {
       token: this.token,
       user_id: this.userId,
       video: this.videoEnabled,
-      max_dave_protocol_version: this.daveEnabled ? MAX_DAVE_PROTOCOL_VERSION : 0,
+      max_dave_protocol_version: this.daveEnabled ? DAVE_PROTOCOL_VERSION : 0,
     }, () => {
       this.setState(SocketStates.IDENTIFYING);
     }, true);
