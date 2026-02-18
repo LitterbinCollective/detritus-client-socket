@@ -409,7 +409,7 @@ export class Socket extends EventSpewer {
           const optype = data.readUInt8(0);
           const proposals = data.subarray(1);
 
-          const { commit, welcome } = this.dave.processProposals(optype, proposals, [...this.ssrcs[MediaSSRCTypes.AUDIO].values()]);
+          const { commit, welcome } = this.dave.processProposals(optype, proposals);
           if (commit)
             this.sendBinary(MediaOpCodes.MLS_COMMIT_WELCOME, welcome ? Buffer.concat([commit, welcome]) : commit);
         } break;

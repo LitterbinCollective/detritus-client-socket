@@ -10,7 +10,7 @@
   "dependencies": {
     "@hpke/core": "^1.7.2",
     "@noble/curves": "^1.9.1",
-    "@snazzah/davey": "^0.1.4",
+    "@snazzah/davey": "^0.1.9",
     "detritus-utils": "^0.4.0",
     "libsodium-wrappers": "^0.7.15",
     "ws": "^8.18.2"
