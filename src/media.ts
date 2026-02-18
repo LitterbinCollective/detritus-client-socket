@@ -181,7 +181,7 @@ export class Socket extends EventSpewer {
   }
 
   setEndpoint(value: string): void {
-    this.endpoint = (value) ? `wss://${value.split(':').shift()}` : null;
+    this.endpoint = (value) ? `wss://${value}` : null;
     this.identified = false;
     if (this.connected) {
       this.connect();
