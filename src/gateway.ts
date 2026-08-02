@@ -383,10 +383,7 @@ export class Socket extends EventSpewer {
     if (code !== undefined) {
       code = parseInt(code as string);
       switch (code) {
-        case SocketCloseCodes.NORMAL: {
-          this.sequence = 0;
-          this.sessionId = null;
-        }; break;
+        case SocketCloseCodes.NORMAL:
         case SocketInternalCloseCodes.INVALID_SESSION_NON_RESUMABLE: {
           this.sequence = 0;
           this.sessionId = null;
