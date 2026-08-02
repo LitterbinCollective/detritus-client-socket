@@ -197,13 +197,13 @@ export class Socket extends EventSpewer {
     if (!codec) {
       return this;
     }
-    if (!MEDIA_CODECS_AUDIO.includes(<MediaCodecs> codec)) {
+    if (!MEDIA_CODECS_AUDIO.includes(codec as MediaCodecs)) {
       this.emit(SocketEvents.WARN, new Error(`Unsupported audio codec received: ${codec}`));
       this.mediaGateway.kill();
       return this;
     }
-    this.codecs.audio = <MediaCodecs> codec;
-    this.headers.audio.setPayloadType(<number> this.rtpAudioPayloadType);
+    this.codecs.audio = codec as MediaCodecs;
+    this.headers.audio.setPayloadType(this.rtpAudioPayloadType!);
     return this;
   }
 
@@ -213,14 +213,14 @@ export class Socket extends EventSpewer {
     if (!codec) {
       return this;
     }
-    if (!MEDIA_CODECS_VIDEO.includes(<MediaCodecs> codec)) {
+    if (!MEDIA_CODECS_VIDEO.includes(codec as MediaCodecs)) {
       this.emit(SocketEvents.WARN, new Error(`Unsupported video codec received: ${codec}`));
       this.mediaGateway.kill();
       return this;
     }
-    this.codecs.video = <MediaCodecs> codec;
+    this.codecs.video = codec as MediaCodecs;
     if (this.headers.video) {
-      this.headers.video.setPayloadType(<number> this.rtpVideoPayloadType);
+      this.headers.video.setPayloadType(this.rtpVideoPayloadType!);
     }
     return this;
   }
@@ -334,9 +334,9 @@ export class Socket extends EventSpewer {
       this.mediaGateway.sendSelectProtocol({
         codecs,
         data: {
-          address: <string> this.local.ip,
-          mode: <string> this.mode,
-          port: <number> this.local.port,
+          address: this.local.ip!,
+          mode: this.mode!,
+          port: this.local.port!,
         },
         protocol: MediaProtocols.UDP,
       });
@@ -368,7 +368,7 @@ export class Socket extends EventSpewer {
 
   disconnect(): void {
     if (this.socket) {
-      (<dgram.Socket> this.socket).close();
+      this.socket.close();
       this.socket = null;
     }
     this.headers.audio.reset();
@@ -477,9 +477,9 @@ export class Socket extends EventSpewer {
       }
 
       let data: Buffer | null = RTPCrypto.decrypt(
-        <Uint8Array> this.key,
-        <Buffer> rtp.payload,
-        <Buffer> rtp.nonce,
+        this.key!,
+        rtp.payload!,
+        rtp.nonce!,
       );
       if (!data) {
         const error = new MediaRTPError('Packet failed to decrypt', from, packet, rtp);
@@ -494,7 +494,7 @@ export class Socket extends EventSpewer {
       }
 
       if (rtp.header.extension) {
-        if (RTPHeaderExtensionOneByte.HEADER.every((header, i) => header === (<Buffer> data)[i])) {
+        if (RTPHeaderExtensionOneByte.HEADER.every((header, i) => header === (data!)[i])) {
           // RFC5285 Section 4.2: One-Byte Header
 
           const fieldAmount = data.readUIntBE(2, 2);
@@ -529,7 +529,7 @@ export class Socket extends EventSpewer {
           data = data.slice(offset);
           // do something here with the fields, then clear it
           // fields.length = 0;
-        } else if (RTPHeaderExtensionTwoByte.HEADER.every((header, i) => header === (<Buffer> data)[i])) {
+        } else if (RTPHeaderExtensionTwoByte.HEADER.every((header, i) => header === (data!)[i])) {
           // RFC5285 Section 4.3: Two-Byte Header not received yet, appbits unknown anyways
           // using two bytes, 0x10 and 0x00 instead
           // if appbits is all 0s, ignore, so rn ignore this packet
@@ -573,14 +573,14 @@ export class Socket extends EventSpewer {
         }
       }
 
-      this.emit(SocketEvents.PACKET, (<TransportPacket> {
+      this.emit(SocketEvents.PACKET, {
         codec,
         data,
         format,
         from,
         rtp,
         userId,
-      }));
+      } as TransportPacket);
     }
   }
 
@@ -589,12 +589,12 @@ export class Socket extends EventSpewer {
       throw new Error('UDP is not connected yet!');
     }
 
-    (<dgram.Socket> this.socket).send(
+    this.socket.send(
       packet,
       0,
       packet.length,
-      <number> this.remote.port,
-      <string> this.remote.ip,
+      this.remote.port!,
+      this.remote.ip!,
       (error: any, bytes: number) => {
         if (error) {
           this.emit(SocketEvents.WARN, error);
@@ -634,7 +634,7 @@ export class Socket extends EventSpewer {
       throw new Error('Haven\'t received the session description yet');
     }
 
-    const type = <string> options.type;
+    const type = options.type!;
     if (type !== MediaCodecTypes.AUDIO && type !== MediaCodecTypes.VIDEO) {
       throw new Error('Invalid frame type');
     }
@@ -644,30 +644,30 @@ export class Socket extends EventSpewer {
       throw new Error('Cannot send in video frames when video is disabled!');
     }
 
-    const cache: {
-      header?: RTPHeader,
-      nonce?: RTPNonce,
-      payload?: Buffer,
-    } = {};
+    let cache: {
+      header: RTPHeader,
+      nonce: RTPNonce,
+      payload: Buffer,
+    };
     switch (type) {
       case MediaCodecTypes.AUDIO: {
-        cache.header = this.headers.audio;
-        cache.nonce = this.nonces.audio;
-        cache.payload = this.caches.audio;
+        cache = {
+          header: this.headers.audio!,
+          nonce: this.nonces.audio!,
+          payload: this.caches.audio!,
+        };
       }; break;
       case MediaCodecTypes.VIDEO: {
-        cache.header = this.headers.video;
-        cache.nonce = this.nonces.video;
-        cache.payload = this.caches.video;
+        cache = {
+          header: this.headers.video!,
+          nonce: this.nonces.video!,
+          payload: this.caches.video!,
+        };
       }; break;
       default: {
         throw new Error(`Invalid type ${type}`);
       };
     }
-
-    cache.header = (<RTPHeader> cache.header);
-    cache.nonce = (<RTPNonce> cache.nonce);
-    cache.payload = (<Buffer> cache.payload);
 
     const rtp: {
       header?: RTPHeader,
@@ -680,11 +680,11 @@ export class Socket extends EventSpewer {
       let payloadType: number, ssrc: number;
       switch (type) {
         case MediaCodecTypes.AUDIO: {
-          payloadType = <number> this.rtpAudioPayloadType;
+          payloadType = this.rtpAudioPayloadType!;
           ssrc = this.audioSSRC;
         }; break;
         case MediaCodecTypes.VIDEO: {
-          payloadType = <number> this.rtpVideoPayloadType;
+          payloadType = this.rtpVideoPayloadType!;
           ssrc = this.videoSSRC;
         }; break;
         default: {
@@ -695,8 +695,8 @@ export class Socket extends EventSpewer {
       rtp.nonce = new RTPNonce({randomize: true});
     }
 
-    rtp.header = (<RTPHeader> rtp.header);
-    rtp.nonce = (<RTPNonce> rtp.nonce);
+    rtp.header = rtp.header as RTPHeader;
+    rtp.nonce = rtp.nonce as RTPNonce;
 
     if (!useCache && cache.header) {
       if (options.sequence === undefined) {
@@ -738,7 +738,7 @@ export class Socket extends EventSpewer {
     }
 
     data.unshift(RTPCrypto.encrypt(
-      <Uint8Array> this.key,
+      this.key!,
       packet,
       nonce,
       payloadDataCache,
@@ -751,14 +751,14 @@ export class Socket extends EventSpewer {
       data.forEach((buf) => {
         const start = total;
         total += buf.length;
-        if (buf instanceof Buffer) {
-          buf.copy(<Buffer> cache.payload, start);
+        if (Buffer.isBuffer(buf)) {
+          buf.copy(cache.payload, start);
         }
       });
       buffer = cache.payload.slice(0, total);
     } else {
       const buffers = [rtp.header.buffer, ...data].map((buffer) => {
-        if (buffer instanceof Buffer) {
+        if (Buffer.isBuffer(buffer)) {
           return buffer;
         }
         return buffer.packet;
