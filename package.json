@@ -60,7 +60,7 @@
   },
   "homepage": "https://github.com/detritusjs/client-socket#readme",
   "devDependencies": {
-    "@types/node": "^26.1.2",
+    "@types/node": "^20.1.0",
     "typedoc": "^0.28.20"
   }
 }
