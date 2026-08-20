@@ -1,12 +1,14 @@
 {
   "compilerOptions": {
-    "target": "esnext",
-    "module": "commonjs",
-    "moduleResolution": "node",
     "declaration": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
     "outDir": "./lib",
     "strict": true,
     "experimentalDecorators": true,
+    "rootDir": "./src",
+    "target": "esnext",
+    "types": ["node"]
   },
   "include": ["src"],
   "exclude": ["node_modules"],

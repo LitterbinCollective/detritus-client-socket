@@ -383,10 +383,7 @@ export class Socket extends EventSpewer {
     if (code !== undefined) {
       code = parseInt(code as string);
       switch (code) {
-        case SocketCloseCodes.NORMAL: {
-          this.sequence = 0;
-          this.sessionId = null;
-        }; break;
+        case SocketCloseCodes.NORMAL:
         case SocketInternalCloseCodes.INVALID_SESSION_NON_RESUMABLE: {
           this.sequence = 0;
           this.sessionId = null;
@@ -1071,14 +1068,14 @@ export class Socket extends EventSpewer {
   }
 
   on(event: string | symbol, listener: (...args: any[]) => void): this;
-  on(event: 'close', listener: (payload: {code: number, reason: string}) => any): this;
-  on(event: 'killed', listener: () => any): this;
-  on(event: 'open', listener: (target: BaseSocket) => any): this;
-  on(event: 'packet', listener: (packet: GatewayPackets.Packet) => any): this;
-  on(event: 'ready', listener: () => any): this;
-  on(event: 'socket', listener: (socket: BaseSocket) => any): this;
-  on(event: 'state', listener: ({state}: {state: SocketStates}) => any): this;
-  on(event: 'warn', listener: (error: Error) => any): this;
+  on(event: SocketEvents.CLOSE | 'close', listener: (payload: {code: number, reason: string}) => any): this;
+  on(event: SocketEvents.KILLED | 'killed', listener: (payload: {error?: Error}) => any): this;
+  on(event: SocketEvents.OPEN | 'open', listener: (target: BaseSocket) => any): this;
+  on(event: SocketEvents.PACKET | 'packet', listener: (packet: GatewayPackets.Packet) => any): this;
+  on(event: SocketEvents.READY | 'ready', listener: () => any): this;
+  on(event: SocketEvents.SOCKET | 'socket', listener: (socket: BaseSocket) => any): this;
+  on(event: SocketEvents.STATE | 'state', listener: ({state}: {state: SocketStates}) => any): this;
+  on(event: SocketEvents.WARN | 'warn', listener: (error: Error) => any): this;
   on(event: string | symbol, listener: (...args: any[]) => void): this {
     super.on(event, listener);
     return this;
