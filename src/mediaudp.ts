@@ -699,7 +699,7 @@ export class Socket extends EventSpewer {
       }
     }
 
-    const cache: {
+    let cache: {
       header?: RTPHeader,
       nonce?: RTPNonce,
       payload?: Buffer,
@@ -760,7 +760,7 @@ export class Socket extends EventSpewer {
       length: number,
       packet: Buffer,
     }> = [];
-    const payloadDataCache = (useCache) ? cache.payload.subarray(12) : null;
+    const payloadDataCache = (useCache && cache.payload) ? cache.payload.subarray(12) : null;
 
     let nonce: Buffer;
     switch (this.mode) {
@@ -801,7 +801,7 @@ export class Socket extends EventSpewer {
     ));
 
     let buffer: Buffer;
-    if (useCache) {
+    if (useCache && cache.payload) {
       let total = rtp.header.length;
       rtp.header.copy(cache.payload);
       data.forEach((buf) => {
